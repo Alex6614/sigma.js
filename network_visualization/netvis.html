@@ -56,6 +56,7 @@
 <script src="../plugins/sigma.renderers.customEdgeShapes/sigma.canvas.edgehovers.tapered.js"></script>
 <script src="../plugins/sigma.parsers.json/sigma.parsers.json.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+<script src="lib/require.js"></script>
 <div id="container">
   <style>
     #graph-container {
@@ -69,92 +70,154 @@
   <div id="graph-container"></div>
 </div>
 <script>
+requirejs(['../node_modules/lodash/lodash'], function (lodash) {
 
-var g = {
-      nodes: [],
-      edges: []
-    };
-
-function accumulateLevels(nodes) {
-  var g = {};
-  nodes.forEach(function(node) {
-    var level = node.level.toString();
-    if(g.hasOwnProperty(level)){
-      g[level].counter++;
-    } else {
-      g[level] = {
-        "counter" : 2,
-        "increment" : 1
+  var g = {
+        nodes: [],
+        edges: []
       };
+
+  var s = new sigma({
+    graph: g,
+    renderer: {
+      container: document.getElementById('graph-container'),
+      type: 'canvas'
+    },
+    settings: {
+      minNodeSize: 1,
+      maxNodeSize: 10,
+      minEdgeSize: 0.1,
+      maxEdgeSize: 2,
+      enableEdgeHovering: true,
+      edgeHoverSizeRatio: 2
     }
   });
-  return g;
-}
 
-$.getJSON("data/smallnet.json", function (data) {
-    var edges = data.edges;
-    var nodes = data.nodes;
-    var xVals = accumulateLevels(nodes);
-    var nodesIncrement = 1.0/nodes.length;
-    var i = 0;
+  function accumulateLevels(nodes) {
+    var g = {};
 
-    for (var node in nodes) {
-      var color;
-      if (nodes[node].util === 0) {
-        color = "#000000";
-      } else if (nodes[node].util < 50) {
-        color = "#ff0000";
-      } else if (nodes[node].util < 100) {
-        color = "#ff8d00";
-      } else if (nodes[node].util == 100) {
-        color = "#09ff00";
-      }
-      var level = nodes[node].level.toString();
-      xInfo = xVals[level];
-      x = xInfo.increment * 1.0/xInfo.counter;
-      xVals[level].increment++; 
-
-      g.nodes.push({
-        id: nodes[node].id,
-        label: nodes[node].label,
-        x: x,
-        y: nodes[node].level * 0.5,
-        size: 5,
-        color: color
-      });
-    }
-
-    for (var edge in edges) {
-      g.edges.push({
-        id: edges[edge].id,
-        source: edges[edge].source,
-        target: edges[edge].target,
-        type: ['dotted'],
-        size: 2,
-        color: "#000000"
-      });
-    }
-
-    var s = new sigma({
-      graph: g,
-      renderer: {
-        // IMPORTANT:
-        // This works only with the canvas renderer, so the
-        // renderer type set as "canvas" is necessary here.
-        container: document.getElementById('graph-container'),
-        type: 'canvas'
-      },
-      settings: {
-        minNodeSize: 1,
-        maxNodeSize: 10,
-        minEdgeSize: 0.1,
-        maxEdgeSize: 2,
-        enableEdgeHovering: true,
-        edgeHoverSizeRatio: 2
+    // Go through the nodes and 
+    nodes.forEach(function(node) {
+      var level = node.level.toString();
+      if(g.hasOwnProperty(level)){
+        g[level].counter++;
+      } else {
+        g[level] = {
+          "counter" : 2,
+          "increment" : 1
+        };
       }
     });
 
-    console.log(s.graph.nodes());
-});
+    return g;
+  }
 
+  // Checks the data to see if any nodes are changed
+  // Returns an array of two booleans
+  // If either boolean is true, you should refresh graph
+  // If the first boolean is true, you should recall accumulateLevels before refreshing graph
+  function refreshNodes(inputNodes) {
+    var currNodes = s.graph.nodes();
+    var hasNodesChanged = false;
+    var hasNodeInfoChanged = false;
+
+    // Check if nodes exist
+    inputNodes.forEach(function(inputNode) {
+      if(!s.graph.nodes(inputNode.id)) {
+        s.graph.addNode({
+            id: inputNode.id,
+            label: inputNode.label,
+            size: 5,
+            y: inputNode.level * 0.5,
+            color: "#000000"
+          });
+        hasNodesChanged = true;
+      }
+    });
+
+    // Check if nodes have disappeared
+    currNodes.forEach(function(currNode) {
+      var hasCurrNode = false;
+      inputNodes.forEach(function(inputNode) {
+        if (currNode.id == inputNode.id) {
+          hasCurrNode = true;
+        }
+      });
+      if(!hasCurrNode) {
+        s.graph.dropNode(currNode.id);
+        hasNodesChanged = true;
+      }
+    });
+
+    // Check buffer utilization
+    inputNodes.forEach(function(inputNode) {
+      var color;
+        if (inputNode.util === 0) {
+          color = "#000000";
+        } else if (inputNode.util < 50) {
+          color = "#ff0000";
+        } else if (inputNode.util < 100) {
+          color = "#ff8d00";
+        } else if (inputNode.util == 100) {
+          color = "#09ff00";
+        }
+      if (color != s.graph.nodes(inputNode.id).color){
+        s.graph.nodes(inputNode.id).color = color;
+        hasNodesChanged = true;
+      }
+    });
+    return [hasNodesChanged, hasNodeInfoChanged];
+  }
+
+  function refreshData() {
+    $.getJSON("data/smallnet.json", function (data) {
+        var edges = data.edges;
+        var nodes = data.nodes;
+        var xVals = accumulateLevels(nodes);
+        var nodesIncrement = 1.0/nodes.length;
+        var i = 0;
+        for (var node in nodes) {
+          var color;
+          if (nodes[node].util === 0) {
+            color = "#000000";
+          } else if (nodes[node].util < 50) {
+            color = "#ff0000";
+          } else if (nodes[node].util < 100) {
+            color = "#ff8d00";
+          } else if (nodes[node].util == 100) {
+            color = "#09ff00";
+          }
+          var level = nodes[node].level.toString();
+          var xInfo = xVals[level];
+          x = xInfo.increment * 1.0/xInfo.counter;
+          xVals[level].increment++; 
+
+          s.graph.addNode({
+            id: nodes[node].id,
+            label: nodes[node].label,
+            level: nodes[node].level,
+            x: x,
+            y: nodes[node].level * 0.5,
+            size: 5,
+            color: color
+          });
+        }
+
+        for (var edge in edges) {
+          s.graph.addEdge({
+            id: edges[edge].id,
+            source: edges[edge].source,
+            target: edges[edge].target,
+            type: ['dotted'],
+            size: 2,
+            color: "#000000"
+          });
+        }
+        s.refresh();
+        refreshNodes(nodes); 
+    });
+  }
+
+  refreshData();
+});
 </script>
