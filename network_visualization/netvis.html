@@ -72,6 +72,10 @@
 <script>
 requirejs(['../node_modules/lodash/lodash'], function (lodash) {
 
+  $.ajaxSetup({
+    cache: false
+  });
+
   var g = {
         nodes: [],
         edges: []
@@ -93,11 +97,11 @@ requirejs(['../node_modules/lodash/lodash'], function (lodash) {
     }
   });
 
-  function accumulateLevels(nodes) {
+  function relocateNodes() {
     var g = {};
 
     // Go through the nodes and 
-    nodes.forEach(function(node) {
+    s.graph.nodes().forEach(function(node) {
       var level = node.level.toString();
       if(g.hasOwnProperty(level)){
         g[level].counter++;
@@ -108,8 +112,14 @@ requirejs(['../node_modules/lodash/lodash'], function (lodash) {
         };
       }
     });
-
-    return g;
+    
+    s.graph.nodes().forEach(function(node) {
+      var level = node.level.toString();
+      var xInfo = g[level];
+      x = xInfo.increment * 1.0/xInfo.counter;
+      g[level].increment++;
+      s.graph.nodes(node.id).x = x;
+    });
   }
 
   // Checks the data to see if any nodes are changed
@@ -117,7 +127,6 @@ requirejs(['../node_modules/lodash/lodash'], function (lodash) {
   // If either boolean is true, you should refresh graph
   // If the first boolean is true, you should recall accumulateLevels before refreshing graph
   function refreshNodes(inputNodes) {
-    var currNodes = s.graph.nodes();
     var hasNodesChanged = false;
     var hasNodeInfoChanged = false;
 
@@ -127,6 +136,7 @@ requirejs(['../node_modules/lodash/lodash'], function (lodash) {
         s.graph.addNode({
             id: inputNode.id,
             label: inputNode.label,
+            level: inputNode.level,
             size: 5,
             y: inputNode.level * 0.5,
             color: "#000000"
@@ -136,7 +146,7 @@ requirejs(['../node_modules/lodash/lodash'], function (lodash) {
     });
 
     // Check if nodes have disappeared
-    currNodes.forEach(function(currNode) {
+    s.graph.nodes().forEach(function(currNode) {
       var hasCurrNode = false;
       inputNodes.forEach(function(inputNode) {
         if (currNode.id == inputNode.id) {
@@ -169,55 +179,58 @@ requirejs(['../node_modules/lodash/lodash'], function (lodash) {
     return [hasNodesChanged, hasNodeInfoChanged];
   }
 
-  function refreshData() {
-    $.getJSON("data/smallnet.json", function (data) {
-        var edges = data.edges;
-        var nodes = data.nodes;
-        var xVals = accumulateLevels(nodes);
-        var nodesIncrement = 1.0/nodes.length;
-        var i = 0;
-        for (var node in nodes) {
-          var color;
-          if (nodes[node].util === 0) {
-            color = "#000000";
-          } else if (nodes[node].util < 50) {
-            color = "#ff0000";
-          } else if (nodes[node].util < 100) {
-            color = "#ff8d00";
-          } else if (nodes[node].util == 100) {
-            color = "#09ff00";
-          }
-          var level = nodes[node].level.toString();
-          var xInfo = xVals[level];
-          x = xInfo.increment * 1.0/xInfo.counter;
-          xVals[level].increment++; 
+  // Checks if any edges are added or removed
+  // Returns true if something has changed
+  function refreshEdges(inputEdges) {
+    var hasEdgesChanged = false;
 
-          s.graph.addNode({
-            id: nodes[node].id,
-            label: nodes[node].label,
-            level: nodes[node].level,
-            x: x,
-            y: nodes[node].level * 0.5,
-            size: 5,
-            color: color
-          });
-        }
-
-        for (var edge in edges) {
-          s.graph.addEdge({
-            id: edges[edge].id,
-            source: edges[edge].source,
-            target: edges[edge].target,
+    // Check if there are any new edges
+    inputEdges.forEach(function(inputEdge) {
+      if(!s.graph.edges(inputEdge.id)) {
+        s.graph.addEdge({
+            id: inputEdge.id,
+            source: inputEdge.source,
+            target: inputEdge.target,
             type: ['dotted'],
             size: 2,
             color: "#000000"
           });
+        hasEdgesChanged = true;
+      }
+    });
+
+    // Check if nodes have disappeared
+    s.graph.edges().forEach(function(currEdge) {
+      var hasCurrEdge = false;
+      inputEdges.forEach(function(inputEdge) {
+        if (currEdge.id == inputEdge.id) {
+          hasCurrEdge = true;
         }
-        s.refresh();
-        refreshNodes(nodes); 
+      });
+      if(!hasCurrEdge) {
+        s.graph.dropEdge(currEdge.id);
+        hasEdgesChanged = true;
+      }
+    });
+
+    return hasEdgesChanged;
+  }
+
+  function refreshData() {
+    $.getJSON("data/changenet.json", function (data) {
+        var nodeChanges = refreshNodes(data.nodes);
+        var edgeChanges = refreshEdges(data.edges);
+        if(nodeChanges[0] || nodeChanges[1] || edgeChanges) {
+          if(nodeChanges[0]) {
+            relocateNodes();
+          }
+          s.refresh();
+        } else {
+          console.log("no change");
+        }
     });
   }
 
-  refreshData();
+  setInterval(function(){refreshData();}, 500);
 });
 </script>
